@@ -30,6 +30,7 @@ app.use('/api/landing', require('./routes/landingRoutes'));
 app.use('/api/whatido', require('./routes/whatidoRoutes'));
 app.use('/api/techstack', require('./routes/techstackRoutes'));
 app.use('/api/contact', require('./routes/contactRoutes'));
+app.use('/api/settings', require('./routes/settingsRoutes'));
 
 // Start Server
 app.listen(PORT, () => {
