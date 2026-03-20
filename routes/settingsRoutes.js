@@ -251,11 +251,8 @@ router.get('/resumes', async (req, res) => {
     res.json(response.data.files || []);
   } catch (err) {
     console.error('List resumes error:', err);
-    if (isInvalidGrantError(err)) {
-      // Keep dashboard usable when Drive token is expired/revoked.
-      return res.json([]);
-    }
-    res.status(500).json({ message: err.message || 'Failed to list resumes' });
+    // Keep dashboard usable even when Drive is temporarily unavailable or OAuth token is invalid.
+    return res.json([]);
   }
 });
 
