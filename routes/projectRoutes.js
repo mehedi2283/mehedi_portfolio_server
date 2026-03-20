@@ -4,6 +4,7 @@ const Project = require('../models/Project');
 
 router.get('/', async (req, res) => {
   try {
+    res.set('Cache-Control', 'public, max-age=30, s-maxage=120, stale-while-revalidate=300');
     const projects = await Project.find().sort({ order: 1, createdAt: -1 });
     res.json(projects);
   } catch (err) {

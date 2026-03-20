@@ -4,6 +4,7 @@ const TechStack = require('../models/TechStack');
 
 router.get('/', async (req, res) => {
   try {
+    res.set('Cache-Control', 'public, max-age=30, s-maxage=120, stale-while-revalidate=300');
     const items = await TechStack.find();
     const rank = (item) => {
       if (item.category === 'automation' && item.highlighted) return 0;

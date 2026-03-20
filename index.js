@@ -23,6 +23,21 @@ app.use(cors());
 app.use(compression());
 app.use(express.json());
 
+// Log slow API requests to help identify bottlenecks in production.
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+
+  res.on('finish', () => {
+    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    const shouldLog = elapsedMs >= 350 || process.env.LOG_ALL_REQUESTS === 'true';
+    if (shouldLog) {
+      console.log(`[API] ${req.method} ${req.originalUrl} ${res.statusCode} ${elapsedMs.toFixed(1)}ms`);
+    }
+  });
+
+  next();
+});
+
 // Ensure DB is connected before handling API routes.
 app.use(async (_req, res, next) => {
   try {
