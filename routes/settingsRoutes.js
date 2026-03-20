@@ -2,13 +2,24 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
 
+const uploadDir = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'portfolio-uploads')
+  : path.join(__dirname, '..', 'uploads');
+
+try {
+  fs.mkdirSync(uploadDir, { recursive: true });
+} catch (e) {
+  console.warn('Upload directory init warning:', e.message);
+}
+
 // Multer config for temporary file storage
-const upload = multer({ 
-  dest: path.join(__dirname, '..', 'uploads'),
+const upload = multer({
+  dest: uploadDir,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
@@ -21,17 +32,44 @@ const upload = multer({
 
 // Google Drive auth
 function getDriveService() {
-  const credPath = path.join(__dirname, '..', 'oauth-credentials.json');
-  const tokenPath = path.join(__dirname, '..', 'oauth-token.json');
-  
-  const credentials = JSON.parse(fs.readFileSync(credPath));
-  const { client_secret, client_id, redirect_uris } = credentials.web;
-  
-  const auth = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-  
-  const token = JSON.parse(fs.readFileSync(tokenPath));
-  auth.setCredentials(token);
-  
+  let clientId;
+  let clientSecret;
+  let redirectUri;
+  let refreshToken;
+
+  if (
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GOOGLE_REDIRECT_URI &&
+    process.env.GOOGLE_REFRESH_TOKEN
+  ) {
+    clientId = process.env.GOOGLE_CLIENT_ID;
+    clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    redirectUri = process.env.GOOGLE_REDIRECT_URI;
+    refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  } else {
+    const credPath = path.join(__dirname, '..', 'oauth-credentials.json');
+    const tokenPath = path.join(__dirname, '..', 'oauth-token.json');
+
+    if (!fs.existsSync(credPath) || !fs.existsSync(tokenPath)) {
+      throw new Error(
+        'Google OAuth credentials are missing. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI, GOOGLE_REFRESH_TOKEN in Vercel env.'
+      );
+    }
+
+    const credentials = JSON.parse(fs.readFileSync(credPath));
+    const token = JSON.parse(fs.readFileSync(tokenPath));
+    const { client_secret, client_id, redirect_uris } = credentials.web;
+
+    clientId = client_id;
+    clientSecret = client_secret;
+    redirectUri = redirect_uris[0];
+    refreshToken = token.refresh_token;
+  }
+
+  const auth = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  auth.setCredentials({ refresh_token: refreshToken });
+
   return google.drive({ version: 'v3', auth });
 }
 
@@ -107,18 +145,21 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
     const drive = getDriveService();
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
+    if (!folderId) {
+      throw new Error('GOOGLE_DRIVE_FOLDER_ID is missing in environment variables.');
+    }
+
     let finalName = req.file.originalname || `Resume_${Date.now()}.pdf`;
     const nameWithoutExt = finalName.replace(/\.pdf$/i, '');
-    
+
     try {
-      // Check for existing files with similar names
       const existing = await drive.files.list({
         q: `"${folderId}" in parents and trashed=false and name contains '${nameWithoutExt.replace(/'/g, "\\'")}'`,
         fields: 'files(name)'
       });
-      
-      const existingNames = new Set(existing.data.files.map(f => f.name));
-      
+
+      const existingNames = new Set(existing.data.files.map((f) => f.name));
+
       if (existingNames.has(finalName)) {
         let counter = 1;
         while (existingNames.has(`${nameWithoutExt} (${counter}).pdf`)) {
@@ -130,7 +171,6 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       console.warn('Could not check for duplicate filenames:', e.message);
     }
 
-    // Upload file to Google Drive
     const fileMetadata = {
       name: finalName,
       parents: [folderId],
@@ -146,7 +186,6 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       fields: 'id, webViewLink',
     });
 
-    // Try to make the file publicly viewable, but don't fail if forbidden
     try {
       await drive.permissions.create({
         fileId: driveFile.data.id,
@@ -157,13 +196,10 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       });
     } catch (permErr) {
       console.warn('Could not set public permissions automatically:', permErr.message);
-      // Continue anyway, as the file uploaded successfully. 
-      // The user may need to manually share the folder or file in their Drive.
     }
 
     const resumeUrl = driveFile.data.webViewLink;
 
-    // Save the link to settings
     let settings = await Settings.findOne();
     if (!settings) {
       settings = new Settings({ resumeUrl });
@@ -172,12 +208,10 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
     }
     await settings.save();
 
-    // Clean up temporary file
     fs.unlinkSync(req.file.path);
 
     res.json({ success: true, resumeUrl });
   } catch (err) {
-    // Clean up temp file on error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
@@ -191,6 +225,10 @@ router.get('/resumes', async (req, res) => {
   try {
     const drive = getDriveService();
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+    if (!folderId) {
+      throw new Error('GOOGLE_DRIVE_FOLDER_ID is missing in environment variables.');
+    }
 
     const response = await drive.files.list({
       q: `"${folderId}" in parents and trashed=false`,
@@ -211,19 +249,16 @@ router.delete('/resumes/:id', async (req, res) => {
     const drive = getDriveService();
     const fileId = req.params.id;
 
-    // Get the file first to see if it's the active one
     let webViewLink = '';
     try {
       const fileInfo = await drive.files.get({ fileId, fields: 'webViewLink' });
       webViewLink = fileInfo.data.webViewLink;
-    } catch (e) {
-      // Ignore if we can't get info
+    } catch (_e) {
+      // ignore
     }
 
-    // Delete from drive
     await drive.files.delete({ fileId });
 
-    // If it was the active resume, clear it
     if (webViewLink) {
       const settings = await Settings.findOne();
       if (settings && settings.resumeUrl === webViewLink) {
