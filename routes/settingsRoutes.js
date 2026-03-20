@@ -7,6 +7,13 @@ const fs = require('fs');
 const { google } = require('googleapis');
 const Settings = require('../models/Settings');
 
+const RESUME_LIST_CACHE_TTL_MS = 30 * 1000;
+let resumeListCache = { data: null, expiresAt: 0 };
+
+function invalidateResumeListCache() {
+  resumeListCache = { data: null, expiresAt: 0 };
+}
+
 const uploadDir = process.env.VERCEL
   ? path.join(os.tmpdir(), 'portfolio-uploads')
   : path.join(__dirname, '..', 'uploads');
@@ -221,6 +228,8 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
     }
     await settings.save();
 
+    invalidateResumeListCache();
+
     fs.unlinkSync(req.file.path);
 
     res.json({ success: true, resumeUrl });
@@ -241,6 +250,10 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
 // GET list of resumes from Google Drive
 router.get('/resumes', async (req, res) => {
   try {
+    if (resumeListCache.data && Date.now() < resumeListCache.expiresAt) {
+      return res.json(resumeListCache.data);
+    }
+
     const drive = getDriveService();
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
@@ -254,7 +267,13 @@ router.get('/resumes', async (req, res) => {
       orderBy: 'createdTime desc'
     });
 
-    res.json(response.data.files || []);
+    const files = response.data.files || [];
+    resumeListCache = {
+      data: files,
+      expiresAt: Date.now() + RESUME_LIST_CACHE_TTL_MS,
+    };
+
+    res.json(files);
   } catch (err) {
     console.error('List resumes error:', err);
     // Keep dashboard usable even when Drive is temporarily unavailable or OAuth token is invalid.
@@ -317,6 +336,8 @@ router.delete('/resumes/:id', async (req, res) => {
     }
 
     await drive.files.delete({ fileId });
+
+    invalidateResumeListCache();
 
     if (webViewLink) {
       const settings = await Settings.findOne();

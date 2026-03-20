@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const compression = require('compression');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,6 +20,7 @@ async function connectDb() {
 
 // Middleware
 app.use(cors());
+app.use(compression());
 app.use(express.json());
 
 // Ensure DB is connected before handling API routes.
