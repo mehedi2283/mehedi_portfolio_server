@@ -262,6 +262,46 @@ router.get('/resumes', async (req, res) => {
   }
 });
 
+// GET streamable PDF preview from Google Drive via backend proxy
+router.get('/resumes/:id/preview', async (req, res) => {
+  try {
+    const drive = getDriveService();
+    const fileId = req.params.id;
+
+    const meta = await drive.files.get({ fileId, fields: 'name,mimeType' });
+    const fileName = String(meta?.data?.name || 'resume.pdf').replace(/"/g, '');
+    const mimeType = meta?.data?.mimeType || 'application/pdf';
+
+    const response = await drive.files.get(
+      { fileId, alt: 'media' },
+      { responseType: 'stream' }
+    );
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+
+    response.data.on('error', (streamErr) => {
+      console.error('Drive preview stream error:', streamErr);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to stream resume preview' });
+      } else {
+        res.end();
+      }
+    });
+
+    response.data.pipe(res);
+  } catch (err) {
+    console.error('Resume preview error:', err);
+    if (isInvalidGrantError(err)) {
+      return res.status(503).json({
+        message: 'Google Drive authorization expired. Reconnect OAuth credentials and try again.',
+      });
+    }
+    res.status(500).json({ message: err.message || 'Failed to preview resume' });
+  }
+});
+
 // DELETE resume from Google Drive
 router.delete('/resumes/:id', async (req, res) => {
   try {
