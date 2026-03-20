@@ -37,6 +37,12 @@ function isInvalidGrantError(err) {
   return message.includes('invalid_grant') || directError.includes('invalid_grant') || nestedError.includes('invalid_grant');
 }
 
+function sanitizeEnvValue(value) {
+  if (value === undefined || value === null) return '';
+  const trimmed = String(value).trim();
+  return trimmed.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+}
+
 // Google Drive auth
 function getDriveService() {
   let clientId;
@@ -50,10 +56,10 @@ function getDriveService() {
     process.env.GOOGLE_REDIRECT_URI &&
     process.env.GOOGLE_REFRESH_TOKEN
   ) {
-    clientId = process.env.GOOGLE_CLIENT_ID;
-    clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    redirectUri = process.env.GOOGLE_REDIRECT_URI;
-    refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+    clientId = sanitizeEnvValue(process.env.GOOGLE_CLIENT_ID);
+    clientSecret = sanitizeEnvValue(process.env.GOOGLE_CLIENT_SECRET);
+    redirectUri = sanitizeEnvValue(process.env.GOOGLE_REDIRECT_URI);
+    refreshToken = sanitizeEnvValue(process.env.GOOGLE_REFRESH_TOKEN);
   } else {
     const credPath = path.join(__dirname, '..', 'oauth-credentials.json');
     const tokenPath = path.join(__dirname, '..', 'oauth-token.json');
@@ -71,7 +77,7 @@ function getDriveService() {
     clientId = client_id;
     clientSecret = client_secret;
     redirectUri = redirect_uris[0];
-    refreshToken = token.refresh_token;
+    refreshToken = sanitizeEnvValue(token.refresh_token);
   }
 
   const auth = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
