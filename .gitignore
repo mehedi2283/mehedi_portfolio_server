@@ -1,2 +1,6 @@
-﻿node_modules/
+node_modules/
 .env
+auth.txt
+google-credentials.json
+oauth-credentials.json
+oauth-token.json

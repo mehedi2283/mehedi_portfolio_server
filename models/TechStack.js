@@ -4,7 +4,7 @@ const techStackSchema = new mongoose.Schema({
   name: { type: String, required: true },
   imageUrl: { type: String, required: true },
   category: { type: String, enum: ['automation', 'extra'], default: 'automation' },
-  order: { type: Number, default: 0 },
+  highlighted: { type: Boolean, default: false },
 }, { timestamps: true });
 
 module.exports = mongoose.model('TechStack', techStackSchema);
