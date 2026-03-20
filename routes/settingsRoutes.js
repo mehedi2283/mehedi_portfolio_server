@@ -35,20 +35,18 @@ function getDriveService() {
   return google.drive({ version: 'v3', auth });
 }
 
-// Initialize settings if they don't exist
-const initSettings = async () => {
-  const count = await Settings.countDocuments();
-  if (count === 0) {
-    await Settings.create({ passkey1: '1358549', passkey2: '2283' });
-    console.log('Default settings initialized');
-  }
-};
-initSettings();
+async function ensureSettings() {
+  return Settings.findOneAndUpdate(
+    {},
+    { $setOnInsert: { passkey1: '1358549', passkey2: '2283', themeColor: '#5eead4', resumeUrl: '' } },
+    { new: true, upsert: true }
+  );
+}
 
 // GET current settings
 router.get('/', async (req, res) => {
   try {
-    const settings = await Settings.findOne() || { passkey1: '1358549', passkey2: '2283', themeColor: '#5eead4', resumeUrl: '' };
+    const settings = await ensureSettings();
     res.json(settings);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -59,7 +57,7 @@ router.get('/', async (req, res) => {
 router.post('/verify/1', async (req, res) => {
   try {
     const { passkey } = req.body;
-    const settings = await Settings.findOne();
+    const settings = await ensureSettings();
     if (settings && settings.passkey1 === passkey) {
       return res.json({ success: true });
     }
@@ -73,7 +71,7 @@ router.post('/verify/1', async (req, res) => {
 router.post('/verify/2', async (req, res) => {
   try {
     const { passkey } = req.body;
-    const settings = await Settings.findOne();
+    const settings = await ensureSettings();
     if (settings && settings.passkey2 === passkey) {
       return res.json({ success: true });
     }
@@ -87,15 +85,11 @@ router.post('/verify/2', async (req, res) => {
 router.put('/', async (req, res) => {
   try {
     const { passkey1, passkey2, themeColor, resumeUrl } = req.body;
-    let settings = await Settings.findOne();
-    if (!settings) {
-      settings = new Settings({ passkey1, passkey2, themeColor, resumeUrl });
-    } else {
-      settings.passkey1 = passkey1 || settings.passkey1;
-      settings.passkey2 = passkey2 || settings.passkey2;
-      if (themeColor) settings.themeColor = themeColor;
-      if (resumeUrl !== undefined) settings.resumeUrl = resumeUrl;
-    }
+    let settings = await ensureSettings();
+    settings.passkey1 = passkey1 || settings.passkey1;
+    settings.passkey2 = passkey2 || settings.passkey2;
+    if (themeColor) settings.themeColor = themeColor;
+    if (resumeUrl !== undefined) settings.resumeUrl = resumeUrl;
     await settings.save();
     res.json(settings);
   } catch (err) {
