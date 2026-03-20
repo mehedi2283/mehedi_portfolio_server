@@ -30,6 +30,13 @@ const upload = multer({
   }
 });
 
+function isInvalidGrantError(err) {
+  const message = String(err?.message || '').toLowerCase();
+  const directError = String(err?.error || '').toLowerCase();
+  const nestedError = String(err?.response?.data?.error || '').toLowerCase();
+  return message.includes('invalid_grant') || directError.includes('invalid_grant') || nestedError.includes('invalid_grant');
+}
+
 // Google Drive auth
 function getDriveService() {
   let clientId;
@@ -216,6 +223,11 @@ router.post('/resume/upload', upload.single('resume'), async (req, res) => {
       fs.unlinkSync(req.file.path);
     }
     console.error('Resume upload error:', err);
+    if (isInvalidGrantError(err)) {
+      return res.status(503).json({
+        message: 'Google Drive authorization expired. Reconnect OAuth credentials and try again.',
+      });
+    }
     res.status(500).json({ message: err.message || 'Upload failed' });
   }
 });
@@ -239,6 +251,10 @@ router.get('/resumes', async (req, res) => {
     res.json(response.data.files || []);
   } catch (err) {
     console.error('List resumes error:', err);
+    if (isInvalidGrantError(err)) {
+      // Keep dashboard usable when Drive token is expired/revoked.
+      return res.json([]);
+    }
     res.status(500).json({ message: err.message || 'Failed to list resumes' });
   }
 });
@@ -270,6 +286,11 @@ router.delete('/resumes/:id', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('Delete resume error:', err);
+    if (isInvalidGrantError(err)) {
+      return res.status(503).json({
+        message: 'Google Drive authorization expired. Reconnect OAuth credentials and try again.',
+      });
+    }
     res.status(500).json({ message: err.message || 'Failed to delete resume' });
   }
 });
